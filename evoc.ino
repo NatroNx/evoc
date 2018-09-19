@@ -8,21 +8,46 @@ Software can be used as is and is licensed under GPLv3
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 0
+#define CONNECT_OBD 1
 
-
+static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
 COBDSPI obd;
 bool connected = false;
 unsigned long count = 0;
-
+bool needNewData=true;
 char a2105[8][7][3];
 char a2101[8][9][3];
 char a2102[8][6][3];
 float evData[30][2];
 uint32_t minute5;
 /**
-State of Charge of Battery(BMS) = evData[0][0]
+evData:
+0: State of Charge of Battery(BMS)
+Available Charge Power
+Available Discharge Power
+Battery Current
+Battery DC Voltage
+Battery Max Temperature
+Battery Min Temperature
+Battery Module 01 Temperature
+Battery Module 02 Temperature
+Battery Module 03 Temperature
+Battery Module 04 Temperature
+Battery Module 05 Temperature
+Battery Inlet Temperature
+Max Cell Voltage
+Max Cell Voltage No.
+Min Cell Voltage
+Min Cell Voltage No.
+Auxiliary Battery Voltage
+Cumulative Charge Current
+Cumulative Discharge Current
+Cumulative Charge Energy
+Cumulative Discharge Energy
+Cumulative Operating Time
+Inverter Capacitor Voltage
+Isolation Resistance
 
 **/
 
@@ -92,8 +117,7 @@ bool storeEvData()
   {
     evData[15][0]=hex2uint16(a2101[1][4])*0.02;
     evData[16][0]=hex2uint16(a2101[2][4]);
-    evData[17][0]=hex2uint16(a2101[3][4]);
-    evData[18][0]=hex2uint16(a2101[5][4])*0.1;
+    evData[17][0]=hex2uint16(a2101[5][4])*0.1;
     strcpy(helperLong,a2101[6][4]);
     strcat(helperLong,a2101[7][4]);
     strcat(helperLong,a2101[1][5]);
@@ -101,25 +125,25 @@ bool storeEvData()
   }
   if(strcmp(a2101[0][5],"25")==0)
   {
-    evData[19][0]=strtol(helperLong, NULL, 16)*0.1;
+    evData[18][0]=strtol(helperLong, NULL, 16)*0.1;
     strcpy(helperLong,a2101[3][5]);
     strcat(helperLong,a2101[4][5]);
     strcat(helperLong,a2101[5][5]);
     strcat(helperLong,a2101[6][5]);
-    evData[20][0]=strtol(helperLong, NULL, 16)*0.1;
+    evData[19][0]=strtol(helperLong, NULL, 16)*0.1;
   }
   if(strcmp(a2101[0][6],"26")==0)
   {   strcpy(helperLong,a2101[7][5]);
       strcat(helperLong,a2101[1][6]);
       strcat(helperLong,a2101[2][6]);
       strcat(helperLong,a2101[3][6]);
-      evData[21][0]=strtol(helperLong, NULL, 16)*0.1;
+      evData[20][0]=strtol(helperLong, NULL, 16)*0.1;
 
       strcpy(helperLong,a2101[4][6]);
       strcat(helperLong,a2101[5][6]);
       strcat(helperLong,a2101[6][6]);
       strcat(helperLong,a2101[7][6]);
-      evData[22][0]=strtol(helperLong, NULL, 16)*0.1;
+      evData[21][0]=strtol(helperLong, NULL, 16)*0.1;
     }
     if(strcmp(a2101[0][7],"27")==0)
     {
@@ -127,16 +151,16 @@ bool storeEvData()
       strcat(helperLong,a2101[2][7]);
       strcat(helperLong,a2101[3][7]);
       strcat(helperLong,a2101[4][7]);
-      evData[23][0]=strtol(helperLong, NULL, 16)/3600.0;
+      evData[22][0]=strtol(helperLong, NULL, 16)/3600.0;
       strcpy(helper,a2101[6][7]);
       strcat(helper,a2101[7][7]);
-     evData[24][0]=hex2uint16(helper)*0.1;
+     evData[23][0]=hex2uint16(helper)*0.1;
    }
    if(strcmp(a2101[0][8],"28")==0)
    {
      strcpy(helper,a2101[5][8]);
      strcat(helper,a2101[6][8]);
-    evData[25][0]=hex2uint16(helper);
+    evData[24][0]=hex2uint16(helper);
 
 
 		 }
@@ -144,7 +168,7 @@ bool storeEvData()
 		 {
 			 Serial.println(evData[i][0]);
 		 }
-//evData[0][0]=hex2uint16(2101[0][0])/2;
+
 		Serial.println("end");
 
 
@@ -158,7 +182,7 @@ bool getEvPid(const char* evCommand)
   int y=0;
 	byte case210X=0;
 //if (!evSendCommand(evCommand, buffer, sizeof(buffer), 6000) || obd.checkErrorMessage(buffer))
-evSendCommand(evCommand,buffer,sizeof(buffer), 6000);
+evSendCommand(evCommand,buffer,sizeof(buffer), 2000);
 #if !CONNECT_OBD
 
 if(strncmp(evCommand, "2105",4)  == 0)
@@ -172,11 +196,6 @@ else if(strncmp(evCommand, "2102",4)  == 0)
 }
 
 #endif
-
-
-
-delay(100);
-
       //Serial.println();
 			if (strncmp(buffer, "7EC 10 2D",9)  == 0)  //answer to 210X - we are talking
 			{ case210X=5;
@@ -226,11 +245,13 @@ delay(100);
                     }
                 }
             pointer = strtok (NULL, " ");
-            }
+          }
+          needNewData=false;
          return true;}
        else
        {
-         Serial.println("End");
+         delay(2000);
+         return false;
        }
 
   /**Serial.print("Array a2101[4][1] am Ende: ");
@@ -272,7 +293,7 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 	int n = 0;
 	bool eos = false;
 	bool matched = false;
-	portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+	//portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 	uint32_t t = millis();
 	do {
 		while (digitalRead(SPI_PIN_READY) == HIGH) {
@@ -287,8 +308,9 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 #if SPI_SAFE_MODE
 		delay(10);
 #endif
-		taskYIELD();
-		portENTER_CRITICAL(&mux);
+//		taskYIELD();
+//		portENTER_CRITICAL(&mux);
+SPI.beginTransaction(settings);
 		digitalWrite(SPI_PIN_CS, LOW);
 		while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
 			char c = SPI.transfer(' ');
@@ -332,7 +354,8 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 			}
 		}
 		digitalWrite(SPI_PIN_CS, HIGH);
-	    portEXIT_CRITICAL(&mux);
+    SPI.endTransaction();
+	    //portEXIT_CRITICAL(&mux);
 	} while (!eos && millis() - t < timeout);
 #ifdef DEBUG
 	if (!eos && millis() - t >= timeout) {
@@ -360,7 +383,7 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 bool evInit()
 {
 	const char *initcmd[] = {"ATZ\r", "ATE0\r", "ATH1\r"};
-	char buffer[256];
+	char buffer[300];
 	byte stage;
 
 	for (byte n = 0; n < 3; n++) {
@@ -378,34 +401,28 @@ bool evInit()
 			if (!obd.sendCommand(buffer, buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || !strstr(buffer, "OK")) {
 				continue;
 			}
-
 		stage = 2;
 		delay(10);
-		if (!obd.sendCommand("ATCFC1\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || obd.checkErrorMessage(buffer)) {
-			continue;
+		if (!obd.sendCommand("ATCFC1\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK")) {
 
+      continue;
 		}
 
     delay(10);
-    if (!obd.sendCommand("ATCM7FF\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || obd.checkErrorMessage(buffer)) {
+    if (!obd.sendCommand("ATCM7FF\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK")) {
       continue;
-
     }
 
 
     delay(10);
-    if (!obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || obd.checkErrorMessage(buffer)) {
+    if (!obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK")) {
       continue;
-
     }
 
 
 
     delay(300);
-    if (!obd.sendCommand("2101\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || obd.checkErrorMessage(buffer)) {
-      delay(100);
 
-    }
 
 	}
 	if (stage == 2) {
@@ -429,9 +446,12 @@ bool evInit()
 
 void loop() {
   uint32_t ts = millis();
-  digitalWrite(PIN_LED, HIGH);
+//  digitalWrite(PIN_LED, HIGH);
   // put your main code here, to run repeatedly:
 
+
+if(needNewData)
+{
 
 #if CONNECT_OBD
   if (!connected) {
@@ -453,27 +473,28 @@ void loop() {
   Serial.print(millis());
   Serial.print("] #");
   Serial.print(count++);
+  delay(300);
+while(!getEvPid("2102\r")) Serial.println("..wait for obd data..");
 
+ delay(300);
+while(!getEvPid("2105\r")) Serial.println("..wait for obd data..");
 
-delay(1000);
- getEvPid("2102\r");
-
- delay(1000);
-  getEvPid("2105\r");
-
-	delay(1000);
- getEvPid("2101\r");
-
-
-  Serial.print(" BATTERY:");
-  Serial.print(obd.getVoltage());
-  Serial.print('V');
+	delay(300);
+while(!getEvPid("2101\r")) Serial.println("..wait for obd data..");
+storeEvData();
+Serial.print(" BATTERY:");
+Serial.print(obd.getVoltage());
+Serial.print('V');
 #ifdef ESP32
-  int temp = (int)readChipTemperature() * 165 / 255 - 40;
-  Serial.print(" CPU TEMP:");
-  Serial.print(temp);
+int temp = (int)readChipTemperature() * 165 / 255 - 40;
+Serial.print(" CPU TEMP:");
+Serial.print(temp);
 #endif
-  Serial.println();
+Serial.println();
+}
+
+
+
   if (obd.errors > 2) {
     Serial.println("OBD disconnected");
     connected = false;
@@ -483,9 +504,9 @@ delay(1000);
 
 
 
-if(millis()-minute5>1000*60*0.1)			//every 5 Minutes do this
+if(millis()-minute5>1000*60*1)			//every 5 Minutes do this
 {minute5=millis();
-storeEvData();
+needNewData=true;
 }
 
 
