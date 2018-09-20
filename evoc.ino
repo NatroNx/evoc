@@ -8,7 +8,7 @@ Software can be used as is and is licensed under GPLv3
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 1
+#define CONNECT_OBD 0
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
@@ -21,6 +21,7 @@ char a2101[8][9][3];
 char a2102[8][6][3];
 float evData[30][2];
 uint32_t minute5;
+int errors=0;
 /**
 evData:
 0: State of Charge of Battery(BMS)
@@ -174,9 +175,28 @@ bool storeEvData()
 
 }
 
+bool errorHandling()
+{char buffer[50];
+  Serial.println("Advanced Error Handling!");
+obd.enterLowPowerMode();
+delay(1000);
+obd.leaveLowPowerMode();
+delay(1000);
+obd.sendCommand("ATWS\r", buffer, sizeof(buffer));
+delay(1000);
+obd.reset();
+evInit();
+
+
+}
 
 bool getEvPid(const char* evCommand)
-{	char buffer[300];
+{	if (errors>10)
+  {Serial.print("Errors: " );
+    Serial.println(errors);
+    errorHandling();
+  }
+  char buffer[300];
   char * pointer;
   int x =0;
   int y=0;
@@ -246,10 +266,12 @@ else if(strncmp(evCommand, "2102",4)  == 0)
                 }
             pointer = strtok (NULL, " ");
           }
+          errors=0;
           needNewData=false;
-         return true;}
+         return true;
+       }
        else
-       {
+       {errors++;
          delay(2000);
          return false;
        }
@@ -314,11 +336,11 @@ SPI.beginTransaction(settings);
 		digitalWrite(SPI_PIN_CS, LOW);
 		while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
 			char c = SPI.transfer(' ');
-			Serial.print(c);
+/**			Serial.print(c);
 			if(c==0xD)
 {
 	Serial.println("");
-}
+}*/
 			if (eos) continue;
 			if (!matched) {
 				// match header
@@ -360,7 +382,6 @@ SPI.beginTransaction(settings);
 #ifdef DEBUG
 	if (!eos && millis() - t >= timeout) {
 		// timed out
-		evDebugOutput("RECV TIMEOUT");
 	}
 #endif
 	if (eos) {
@@ -382,11 +403,12 @@ SPI.beginTransaction(settings);
 
 bool evInit()
 {
-	const char *initcmd[] = {"ATZ\r", "ATE0\r", "ATH1\r"};
+	const char *initcmd[] = {"ATZ\r", "ATE0\r", "ATH1\r", "ATSP6\r", "ATCFC1\r","ATCM7FF\r"};
 	char buffer[300];
 	byte stage;
 
 	for (byte n = 0; n < 3; n++) {
+    Serial.print(n);
 		stage = 0;
 		if (n != 0) obd.reset();
 		for (byte i = 0; i < sizeof(initcmd) / sizeof(initcmd[0]); i++) {
@@ -396,7 +418,7 @@ bool evInit()
 			}
 		}
 		stage = 1;
-			sprintf(buffer, "ATSP6\r");
+	/**		sprintf(buffer, "ATSP6\r");
 			delay(10);
 			if (!obd.sendCommand(buffer, buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || !strstr(buffer, "OK")) {
 				continue;
@@ -413,9 +435,12 @@ bool evInit()
       continue;
     }
 
-
+*/
     delay(10);
-    if (!obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK")) {
+
+    if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || strstr(buffer, "OK")) {
+      stage=2;
+      n=3;
       continue;
     }
 
@@ -474,7 +499,10 @@ if(needNewData)
   Serial.print("] #");
   Serial.print(count++);
   delay(300);
-while(!getEvPid("2102\r")) Serial.println("..wait for obd data..");
+while(!getEvPid("2102\r"))
+{Serial.print("..wait for obd data:");
+Serial.println(errors);
+}
 
  delay(300);
 while(!getEvPid("2105\r")) Serial.println("..wait for obd data..");
