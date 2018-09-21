@@ -8,7 +8,7 @@ Software can be used as is and is licensed under GPLv3
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 0
+#define CONNECT_OBD 1
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
