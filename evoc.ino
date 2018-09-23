@@ -178,7 +178,14 @@ bool storeEvData()
 bool errorHandling()
 {char buffer[50];
   Serial.println("Advanced Error Handling!");
-obd.enterLowPowerMode();
+  evSendCommand("\r",buffer,sizeof(buffer), 2000);
+  delay(500);
+  obd.reset();
+  delay(500);
+  evInit();
+  delay(500);
+  errors=0;
+/**obd.enterLowPowerMode();
 delay(1000);
 obd.leaveLowPowerMode();
 delay(1000);
@@ -186,12 +193,13 @@ obd.sendCommand("ATWS\r", buffer, sizeof(buffer));
 delay(1000);
 obd.reset();
 evInit();
+*/
 
 
 }
 
 bool getEvPid(const char* evCommand)
-{	if (errors>10)
+{	if (errors>9)
   {Serial.print("Errors: " );
     Serial.println(errors);
     errorHandling();
@@ -202,7 +210,7 @@ bool getEvPid(const char* evCommand)
   int y=0;
 	byte case210X=0;
 //if (!evSendCommand(evCommand, buffer, sizeof(buffer), 6000) || obd.checkErrorMessage(buffer))
-evSendCommand(evCommand,buffer,sizeof(buffer), 2000);
+evSendCommand(evCommand,buffer,sizeof(buffer), 1000);
 #if !CONNECT_OBD
 
 if(strncmp(evCommand, "2105",4)  == 0)
@@ -240,39 +248,36 @@ else if(strncmp(evCommand, "2102",4)  == 0)
                     }
                   else
                     {
-										switch (case210X)
-										{case 5:
+  										switch (case210X)
+  										{ case 5:
+  										  strcpy(a2105[x][y],pointer);
+  	                    break;
 
-											strcpy(a2105[x][y],pointer);
+  											case 1:
+  	                    strcpy(a2101[x][y],pointer);
+                        break;
 
-											break;
-											case 1:
+  											case 2:
+  											strcpy(a2102[x][y],pointer);
+  											break;
 
-											strcpy(a2101[x][y],pointer);
-
-																						break;
-											case 2:
-
-											strcpy(a2102[x][y],pointer);
-
-																						break;
-											default:
-											Serial.println("NOT 210X");
-																						break;
-										}
-
+  											default:
+  											Serial.println("NOT 210X");
+  											break;
+  										}
                     x++;
-                    }
-                }
-            pointer = strtok (NULL, " ");
+                  }
           }
-          errors=0;
-          needNewData=false;
-         return true;
+            pointer = strtok (NULL, " ");
+        }
+        errors=0;
+        needNewData=false;
+        return true;
        }
        else
-       {errors++;
-         delay(2000);
+       { evSendCommand("\r",buffer,sizeof(buffer), 500);
+         errors++;
+         delay(100);
          return false;
        }
 
@@ -332,7 +337,6 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 #endif
 //		taskYIELD();
 //		portENTER_CRITICAL(&mux);
-SPI.beginTransaction(settings);
 		digitalWrite(SPI_PIN_CS, LOW);
 		while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
 			char c = SPI.transfer(' ');
@@ -503,12 +507,16 @@ while(!getEvPid("2102\r"))
 {Serial.print("..wait for obd data:");
 Serial.println(errors);
 }
-
- delay(300);
-while(!getEvPid("2105\r")) Serial.println("..wait for obd data..");
-
-	delay(300);
-while(!getEvPid("2101\r")) Serial.println("..wait for obd data..");
+delay(300);
+while(!getEvPid("2105\r"))
+{Serial.print("..wait for obd data:");
+Serial.println(errors);
+}
+delay(300);
+while(!getEvPid("2101\r"))
+{Serial.print("..wait for obd data:");
+Serial.println(errors);
+}
 storeEvData();
 Serial.print(" BATTERY:");
 Serial.print(obd.getVoltage());

@@ -1,0 +1,1 @@
+git config --global filter.yourFilterName.smudge 'sed "s/isPhoneGap = .*/isPhoneGap = true/"'
