@@ -15,8 +15,8 @@ Software can be used as is and is licensed under GPLv3
 
 #define SSID "your_wifi_ssid"
 #define SSID_PASSWORD "your_wifi_ssid_password" isPhoneGap
-once
-
+onsce
+var isPhoneGap = false;
 
 
 
