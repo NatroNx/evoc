@@ -7,13 +7,16 @@ Software can be used as is and is licensed under GPLv3
 #include <FreematicsPlus.h>
 #include <WiFiClientSecure.h>
 #include <ThingerESP32.h>
-#include "credentials.h"  //just a file where I Store my credentials in.
+#include "credentials.h"  //just a file where I store my credentials in.
 
+
+//thinger Stuff
+ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 1
+#define CONNECT_OBD 0
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
@@ -24,9 +27,11 @@ bool needNewData=true;
 char a2105[8][7][3];
 char a2101[8][9][3];
 char a2102[8][6][3];
-float evData[30][2];
+
 uint32_t minute5;
 int errors=0;
+
+float evData[30][2];
 /**
 evData:
 0: State of Charge of Battery(BMS)
@@ -65,11 +70,20 @@ const uint8_t header[4] = {0x24, 0x4f, 0x42, 0x44};  //means obd
 
 
 void setup() {
+  ~WiFiClientSecure();
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   delay(1000);
   digitalWrite(PIN_LED, LOW);
   Serial.begin(115200);
+  //thingerIo Stuff
+  thing.add_wifi(SSID, SSID_PASSWORD);
+  thing["Ioniq"] >> [](pson & out){
+  out["SOC"] =  evData[0][0];
+  out["millis"] = millis();
+};
+
+
 
 
   byte ver = obd.begin();
@@ -78,6 +92,8 @@ void setup() {
 
   Serial.print("OBD Firmware Version ");
   Serial.println(ver);
+
+
 }
 
 
@@ -176,6 +192,7 @@ bool storeEvData()
 		 }
 
 		Serial.println("end");
+
 
 
 }
@@ -548,8 +565,19 @@ Serial.println();
 if(millis()-minute5>1000*60*1)			//every 5 Minutes do this
 {minute5=millis();
 needNewData=true;
+
+esp_wifi_stop();
+delay(500);
+esp_set_deep_sleep_wake_stub(500);
+esp_sleep_enable_timer_wakeup(100000);
+esp_deep_sleep_start();
+
+
+delay(100);
 }
 
+thing.handle();
+thing.write_bucket("freematicsbucket", "Ioniq");
 
-  delay(100);
+
 }
