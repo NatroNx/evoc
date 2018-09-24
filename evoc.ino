@@ -580,13 +580,8 @@ if(millis()-minute5>1000*60*1)			//every 5 Minutes do this
 {minute5=millis();
 needNewData=true;
 
-thing.handle();
-thing.write_bucket("freematicsbucket", "Ioniq");
-
-
-
-delay(1000);
 Serial.println("Sleep");
+delay(200);
 esp_sleep_enable_timer_wakeup(50*1000000);
 esp_deep_sleep_start();
 delay(100);
