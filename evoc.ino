@@ -3,7 +3,7 @@ A very first try to get my EV (hyundai Ioniq) connected to thinger.io
 
 Software can be used as is and is licensed under GPLv3
 ******************************************************************************/
-
+#define _DEBUG_
 #include <FreematicsPlus.h>
 #include <WiFiClientSecure.h>
 #include <ThingerESP32.h>
@@ -11,10 +11,10 @@ Software can be used as is and is licensed under GPLv3
 
 
 // This Secion is for adjustable User Settings
-uint32_t updateTimerCharge=120;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
-uint32_t updateTimerDrive=120;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
+uint32_t updateTimerCharge=30;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
+uint32_t updateTimerDrive=30;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=300;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
-uint32_t delayBeforeSleep=240;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
+uint32_t delayBeforeSleep=70;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
 // Settings Section END
 
@@ -25,6 +25,7 @@ bool wifiState;
 
 
 //thinger Stuff
+
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 
@@ -535,10 +536,11 @@ bool getGearPos()
 
 
   #if CONNECT_OBD
+  evInit();
   while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
-  while(!obd.sendCommand("ATCM7FF\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
+
   #endif
-delay(4000);
+
 
 
 #if !CONNECT_OBD
@@ -553,10 +555,7 @@ for (int i=0; i<13; i++)
     lastHeartBeatTimer=millis();
 
     #if CONNECT_OBD
-
-  while(!obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
-  while(!obd.sendCommand("ATCM7FF\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
-    delay(4000);
+    evInit();
     #endif
 
         return true;
@@ -585,7 +584,9 @@ bool evInit()
 		if (n != 0)
     {  evSendCommand("\r",buffer,sizeof(buffer), 2000);
     delay(500);
-      obd.reset();
+if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "TIMEOUT"))
+{Serial.println("P  A  N  I  C");}
+
     }
 		for (byte i = 0; i < sizeof(initcmd) / sizeof(initcmd[0]); i++) {
 			delay(10);
@@ -596,9 +597,12 @@ bool evInit()
 		stage = 1;
     delay(10);
 
-    if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || strstr(buffer, "OK")) {
+
+    if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "OK")) {
       stage=2;
       n=3;
+
+
       continue;
     }
 
@@ -643,11 +647,12 @@ void disconnectCheck()
   if (millis() - lastHeartBeatTimer > delayBeforeSleep*1000)
   {
   if(evData[3][l01]<0) //CAN is down, but last state was charging - tell this to your master
-  {Serial.println("No CAN - last state was charging");
-  thing.call_endpoint("ChargeStop", thing["Ioniq"]);
-  thing.handle();
-  thing.write_bucket("freematicsbucket", "Ioniq");
-delay(10000);
+  { Serial.println("No CAN - last state was charging");
+    evData[25][l05]=0; //no CAN data probably means charging stopped  -send 0Amp
+    thing.handle();
+    thing.write_bucket("freematicsbucket", "Ioniq");
+    thing.call_endpoint("ChargeStop", thing["Ioniq"]);
+    delay(2000);
   }
 
     #ifdef DEBUG
@@ -712,6 +717,9 @@ else  //last state was no charge as well - so we are just parking - let's check 
 Serial.println("updating thinger");
 thing.handle();
 thing.write_bucket("freematicsbucket", "Ioniq");
+
+
+
     }
     }
     {//Serial.println("Car is D or R Mode");
