@@ -3,7 +3,7 @@ A very first try to get my EV (hyundai Ioniq) connected to thinger.io
 
 Software can be used as is and is licensed under GPLv3
 ******************************************************************************/
-#define _DEBUG_
+
 #include <FreematicsPlus.h>
 #include <WiFiClientSecure.h>
 #include <ThingerESP32.h>
@@ -11,11 +11,13 @@ Software can be used as is and is licensed under GPLv3
 
 
 // This Secion is for adjustable User Settings
-uint32_t updateTimerCharge=30;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
-uint32_t updateTimerDrive=30;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
+uint32_t updateTimerCharge=300;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
+uint32_t updateTimerDrive=300;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=300;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
-uint32_t delayBeforeSleep=70;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
+uint32_t delayBeforeSleep=400;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
+bool dataWhileDriving=true;         //should the Dongle send data while driving??
+
 // Settings Section END
 
 bool wifiState;
@@ -31,7 +33,7 @@ ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 1
+#define CONNECT_OBD 0
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
@@ -101,7 +103,7 @@ const uint8_t header[4] = {0x24, 0x4f, 0x42, 0x44};  //means obd
 
 
 void setup() {
-
+btStop();
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   pinMode(PIN_GPS_POWER, OUTPUT); //used for turning Wifi on / off
@@ -258,11 +260,11 @@ bool errorHandling()
   char buffer[50];
   Serial.println("Advanced Error Handling!");
   evSendCommand("\r",buffer,sizeof(buffer), 2000);
-  delay(500);
+  delay(1000);
   obd.reset();
-  delay(500);
+  delay(1000);
   evInit();
-  delay(500);
+  delay(1000);
   errors=0;
 /**obd.enterLowPowerMode();
 delay(1000);
@@ -533,41 +535,23 @@ bool getGearPos()
 
   }
 #endif
-
-
-  #if CONNECT_OBD
-  evInit();
-  while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
-
-  #endif
-
-
-
-#if !CONNECT_OBD
-getEvPid("2101\r ");
+#if CONNECT_OBD
+evInit();
+while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
 #endif
-
-
-
+#if !CONNECT_OBD
+getEvPid("2101\r ");      //if you don't have obd data and need to test -  call this to get 2101 7EA dummy data
+#endif
 for (int i=0; i<13; i++)
 {   if(getEvPid("2101\r"))
   { i=15; //first true breaks out
     lastHeartBeatTimer=millis();
-
     #if CONNECT_OBD
     evInit();
     #endif
-
-        return true;
-  }
-  else
-  {
-
+    return true;
   }
 }
-
-
-
 return false;
 }
 
@@ -583,10 +567,12 @@ bool evInit()
 		stage = 0;
 		if (n != 0)
     {  evSendCommand("\r",buffer,sizeof(buffer), 2000);
-    delay(500);
-if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "TIMEOUT"))
-{Serial.println("P  A  N  I  C");}
-
+       delay(500);
+        if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "NO READY SIGNAL") || strstr(buffer, "RECV TIMEOUT"))
+        { Serial.println("P  A  N  I  C");
+          errorHandling();
+        }
+        disconnectCheck();
     }
 		for (byte i = 0; i < sizeof(initcmd) / sizeof(initcmd[0]); i++) {
 			delay(10);
@@ -596,24 +582,14 @@ if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || s
 		}
 		stage = 1;
     delay(10);
-
-
     if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "OK")) {
       stage=2;
       n=3;
-
-
-      continue;
+  continue;
     }
-
-
-    delay(200);
-
-
+  delay(200);
 	}
 	if (stage == 2) {
-
-
 		return true;
 	} else {
 #ifdef DEBUG
@@ -638,8 +614,6 @@ void controlWifi(bool state)
   lastHeartBeatTimer=millis()+25000; //setting the last heartbeat to be 25 seconds in the future - this avoids to trigger isCanOn right after the wifi is up (on short timers)
   delay(25000);
   }
-
-
 }
 
 void disconnectCheck()
@@ -648,7 +622,7 @@ void disconnectCheck()
   {
   if(evData[3][l01]<0) //CAN is down, but last state was charging - tell this to your master
   { Serial.println("No CAN - last state was charging");
-    evData[25][l05]=0; //no CAN data probably means charging stopped  -send 0Amp
+    evData[3][l01]=0; //no CAN data probably means charging stopped  -send 0Amp
     thing.handle();
     thing.write_bucket("freematicsbucket", "Ioniq");
     thing.call_endpoint("ChargeStop", thing["Ioniq"]);
@@ -664,77 +638,129 @@ void disconnectCheck()
     #endif
 
     controlWifi(false);
+    lastHeartBeatTimer=millis();
     delay(500);
+
+
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
     esp_sleep_enable_timer_wakeup(sleepTimer*1000000);
     esp_deep_sleep_start();
   }
 }
 
-void loop() {
 
-  if(isCanOn())
-  {if(evData[26][l01A]==32)
-    {//Serial.println("Car is in P Mode");
-    if(millis() - updateCheckTimerCharge > updateTimerCharge*1000)
-    {   while(!getEvPid("2101\r"))
-        {   Serial.print("..wait for obd data:");
-            Serial.println(errors);
-        }
-        while(!getEvPid("2105\r"))
-        {   Serial.print("..wait for obd data:");
-            Serial.println(errors);
-        }
+void gatherData()
+{  while(!getEvPid("2101\r"))
+    {   Serial.print("..wait for obd data:");
+        Serial.println(errors);
+    }
+    while(!getEvPid("2105\r"))
+    {   Serial.print("..wait for obd data:");
+        Serial.println(errors);
+    }
+}
 
-  controlWifi(true);
+
+void loop()
+{
+
+  if(millis()-minute5>5000)
+  {Serial.print("UpdatecheckTimerCharge    ");
+    Serial.print((millis() - updateCheckTimerCharge)/1000);
+    Serial.print("  :  ");
+      Serial.println(updateTimerCharge);
+
+      Serial.print("updateCheckTimerDrive  ");
+        Serial.print((millis() - updateCheckTimerDrive)/1000);
+        Serial.print("  :  ");
+          Serial.println(updateTimerDrive);
+
+
+
+
+      Serial.print("AliveCheckTimer  ");
+        Serial.print((millis() - lastHeartBeatTimer)/1000);
+        Serial.print("  :  ");
+          Serial.println(AliveCheckTimer);
+
+
+
+
+    minute5=millis();
+  }
+
+
+
+    if(isCanOn())
+    {if(evData[26][l01A]==32)
+      {//Serial.println("Car is in P Mode");
+        if(millis() - updateCheckTimerCharge > updateTimerCharge*1000)
+        { gatherData();
+          controlWifi(true);
           updateCheckTimerCharge=millis();
+          if(evData[3][l01]<0)                                    //P Mode and negative discharge current  - we are Charging
+          {
+            #ifdef DEBUG
+            DEBUG.println("P Mode and charge current");
+            #endif
+          }
+          else if (evData[3][(l01+1)%2]<0)          //P mode on and last state was charging - now we aren't - charge stopped!
+          {
+            #ifdef DEBUG
+            DEBUG.println("P Mode and  charge stopped");
+            #endif//send a Mail with some details
+            thing.call_endpoint("ChargeStop", thing["Ioniq"]);
+          }
+          else  //last state was no charge as well - so we are just parking - let's check gearPos - maybe we'll start driving
+          {
+            #ifdef DEBUG
+            DEBUG.println("P Mode and no charge - checking gearPosition");
+            #endif
+            getGearPos();
+          }
+          Serial.println("updating thinger");
+          thing.handle();
+          thing.write_bucket("freematicsbucket", "Ioniq");
+          delay(500);
+          lastHeartBeatTimer=millis();
+          delay(500);
 
 
-if(evData[3][l01]<0)    //P Mode and negative discharge current  - we are Charging
-{
-  #ifdef DEBUG
-      DEBUG.println("P Mode and charge current");
-  #endif
-  controlWifi(true);
-
-}
-
-else if (evData[3][(l01+1)%2]<0)  //P mode on and last state was charging - now we aren't - charge stopped!
-{
-  #ifdef DEBUG
-      DEBUG.println("P Mode and  charge stopped");
-  #endif//send a Mail with some details
-  thing.call_endpoint("ChargeStop", thing["Ioniq"]);
-
-}
-else  //last state was no charge as well - so we are just parking - let's check gearPos - maybe we'll start driving
-{
-  #ifdef DEBUG
-      DEBUG.println("P Mode and no charge - checking gearPosition");
-  #endif
-  getGearPos();
-}
-
-Serial.println("updating thinger");
-thing.handle();
-thing.write_bucket("freematicsbucket", "Ioniq");
-
-
-
+          esp_wifi_stop();
+          esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+          esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+          esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+          esp_sleep_enable_timer_wakeup(250*1000000);
+          esp_light_sleep_start();
+          obd.enterLowPowerMode();
+          delay(300);
+          esp_wifi_start();
+          obd.leaveLowPowerMode();
+        }
     }
-    }
-    {//Serial.println("Car is D or R Mode");
-     controlWifi(wifiWhileDriving);
-    }
+    else                                                                              //NO P mode - we're probably driving
+      {controlWifi(wifiWhileDriving);
+        if(millis() - updateCheckTimerDrive > updateTimerDrive*1000)
+          {if(dataWhileDriving)
+             {gatherData();
+             #ifdef DEBUG
+             DEBUG.println("D Mode");
+             #endif
+             updateCheckTimerDrive=millis();
+             Serial.println("updating thinger");
+             thing.handle();
+             thing.write_bucket("freematicsbucket", "Ioniq");
+             }
+
+          updateCheckTimerDrive=millis();
+          getGearPos();
+          }
+      }
   }
-  else
-  {
-    disconnectCheck();
-  }
-
-
-
-
-
-
-
+  else                                                                                                      //CAN IS OFF
+    {
+      disconnectCheck();
+    }
 }
