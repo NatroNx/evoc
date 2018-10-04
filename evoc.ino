@@ -24,6 +24,7 @@ bool dataWhileDriving=true;         //should the Dongle send data while driving?
 // Settings Section END
 
 bool wifiState;
+bool logToFile=true;
 
 
 
@@ -124,6 +125,9 @@ void writeFile(fs::FS &fs, const char * path, const char * message){
 
 
 
+
+
+
 void appendFile(fs::FS &fs, const char * path, const char * message){
     Serial.printf("Appending to file: %s\n", path);
 
@@ -142,6 +146,24 @@ void appendFile(fs::FS &fs, const char * path, const char * message){
 
 
 
+
+void printAndLogln(String messageString)
+{  Serial.println(messageString);
+  if(logToFile)
+  {
+    messageString+="\r\n";
+    appendFile(SD, "/log.txt",messageString.c_str());
+  }
+
+}
+
+void printAndLog(String messageString)
+{  Serial.print(messageString);
+  if(logToFile)
+  {
+  appendFile(SD, "/log.txt",messageString.c_str());
+  }
+}
 
 
 
@@ -163,15 +185,10 @@ btStop();
 
   Serial.begin(115200);
 
-SD.begin(4);
-
+SD.begin(2);
 SD.begin(5);
-appendFile(SD, "/hello.txt","ISSWFx");
 
-
-
-
-
+appendFile(SD, "/log.txt","Start\r\n");
 
 
 
@@ -199,9 +216,13 @@ appendFile(SD, "/hello.txt","ISSWFx");
   Serial.println("WakeUp");
   byte ver = obd.begin();
 
+#ifdef DEBUG
+printAndLog("OBD Firmware Version");
+printAndLogln(String(ver));
 
-  Serial.print("OBD Firmware Version ");
-  Serial.println(ver);
+#endif
+
+
 
 
 }
@@ -311,6 +332,7 @@ bool storeEvData()
 			 Serial.print(evData[i][0]);
        Serial.print("   ");
        Serial.println(evData[i][1]);
+
 		 }
 
 
@@ -734,7 +756,7 @@ void loop()
   {
     char millitime[20];
     sprintf(millitime, "%ul", millis());
-    appendFile(SD, "/hello.txt",millitime);
+    appendFile(SD, "/log.txt",millitime);
 
 
 
@@ -774,7 +796,7 @@ void loop()
 
           if(evData[3][l01]<0)                                    //P Mode and negative discharge current  - we are Charging
           {
-              appendFile(SD, "/hello.txt","Charging\r\n");
+              appendFile(SD, "/log.txt","Charging\r\n");
 
             #ifdef DEBUG
             DEBUG.println("P Mode and charge current");
@@ -785,7 +807,7 @@ void loop()
             #ifdef DEBUG
             DEBUG.println("P Mode and  charge stopped");
             #endif//send a Mail with some details
-                appendFile(SD, "/hello.txt","Stopped\r\n");
+                appendFile(SD, "/log.txt","Stopped\r\n");
             thing.call_endpoint("ChargeStop", thing["Ioniq"]);
           }
           else  //last state was no charge as well - so we are just parking - let's check gearPos - maybe we'll start driving
@@ -794,7 +816,7 @@ void loop()
             DEBUG.println("P Mode and no charge - checking gearPosition");
             #endif
             getGearPos();
-                appendFile(SD, "/hello.txt","getGear\r\n");
+                appendFile(SD, "/log.txt","getGear\r\n");
           }
           Serial.println("updating thinger");
           thing.handle();
@@ -836,7 +858,7 @@ void loop()
       }
   }
   else                                                                                                      //CAN IS OFF
-    {    appendFile(SD, "/hello.txt","noData?\r\n");
+    {    appendFile(SD, "/log.txt","noData?\r\n");
       disconnectCheck();
     }
 }
