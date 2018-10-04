@@ -17,7 +17,7 @@
 #include "FreematicsMEMS.h"
 #include "FreematicsDMP.h"
 #include "FreematicsOBD.h"
-#include "FreematicsSD.h"
+
 
 #define PIN_LED 4
 #define PIN_SD_CS 5

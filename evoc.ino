@@ -3,6 +3,9 @@ A very first try to get my EV (hyundai Ioniq) connected to thinger.io
 
 Software can be used as is and is licensed under GPLv3
 ******************************************************************************/
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
 
 #include <FreematicsPlus.h>
 #include <WiFiClientSecure.h>
@@ -13,7 +16,7 @@ Software can be used as is and is licensed under GPLv3
 // This Secion is for adjustable User Settings
 uint32_t updateTimerCharge=300;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
 uint32_t updateTimerDrive=300;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
-uint32_t sleepTimer=300;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
+uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
 uint32_t delayBeforeSleep=400;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
 bool dataWhileDriving=true;         //should the Dongle send data while driving??
@@ -33,7 +36,7 @@ ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 0
+#define CONNECT_OBD 1
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
@@ -46,6 +49,7 @@ char a2101[8][9][3];
 char a2101A[8][3][3];
 char a2102[8][6][3];
 
+uint32_t ttime;
 uint32_t minute5;
 uint32_t lastHeartBeatTimer;
 uint32_t AliveCheckTimer;
@@ -102,7 +106,50 @@ const uint8_t header[4] = {0x24, 0x4f, 0x42, 0x44};  //means obd
 
 
 
+void writeFile(fs::FS &fs, const char * path, const char * message){
+    Serial.printf("Writing file: %s\n", path);
+
+    File file = fs.open(path, FILE_WRITE);
+    if(!file){
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("File written");
+    } else {
+        Serial.println("Write failed");
+    }
+    file.close();
+}
+
+
+
+void appendFile(fs::FS &fs, const char * path, const char * message){
+    Serial.printf("Appending to file: %s\n", path);
+
+    File file = fs.open(path, FILE_APPEND);
+    if(!file){
+        Serial.println("Failed to open file for appending");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("Message appended");
+    } else {
+        Serial.println("Append failed");
+    }
+    file.close();
+}
+
+
+
+
+
+
 void setup() {
+
+
+
+
 btStop();
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
@@ -115,6 +162,20 @@ btStop();
   // turn on Wifi power
 
   Serial.begin(115200);
+
+SD.begin(4);
+
+SD.begin(5);
+appendFile(SD, "/hello.txt","ISSWFx");
+
+
+
+
+
+
+
+
+
   //thingerIo Stuff
   thing.add_wifi(SSID, SSID_PASSWORD);
   thing["Ioniq"] >> [](pson & out){
@@ -491,7 +552,9 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 
 
 bool isCanOn()
-{if (millis() - lastHeartBeatTimer > AliveCheckTimer*1000)
+{
+
+  if (millis() - lastHeartBeatTimer > AliveCheckTimer*1000)
   {if (getGearPos())
     {
     #ifdef DEBUG
@@ -570,6 +633,7 @@ bool evInit()
        delay(500);
         if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "NO READY SIGNAL") || strstr(buffer, "RECV TIMEOUT"))
         { Serial.println("P  A  N  I  C");
+
           errorHandling();
         }
         disconnectCheck();
@@ -667,10 +731,17 @@ void loop()
 {
 
   if(millis()-minute5>5000)
-  {Serial.print("UpdatecheckTimerCharge    ");
+  {
+    char millitime[20];
+    sprintf(millitime, "%ul", millis());
+    appendFile(SD, "/hello.txt",millitime);
+
+
+
+    Serial.print("UpdatecheckTimerCharge    ");
     Serial.print((millis() - updateCheckTimerCharge)/1000);
     Serial.print("  :  ");
-      Serial.println(updateTimerCharge);
+      Serial.println(updateCheckTimerCharge);
 
       Serial.print("updateCheckTimerDrive  ");
         Serial.print((millis() - updateCheckTimerDrive)/1000);
@@ -700,8 +771,11 @@ void loop()
         { gatherData();
           controlWifi(true);
           updateCheckTimerCharge=millis();
+
           if(evData[3][l01]<0)                                    //P Mode and negative discharge current  - we are Charging
           {
+              appendFile(SD, "/hello.txt","Charging\r\n");
+
             #ifdef DEBUG
             DEBUG.println("P Mode and charge current");
             #endif
@@ -711,6 +785,7 @@ void loop()
             #ifdef DEBUG
             DEBUG.println("P Mode and  charge stopped");
             #endif//send a Mail with some details
+                appendFile(SD, "/hello.txt","Stopped\r\n");
             thing.call_endpoint("ChargeStop", thing["Ioniq"]);
           }
           else  //last state was no charge as well - so we are just parking - let's check gearPos - maybe we'll start driving
@@ -719,6 +794,7 @@ void loop()
             DEBUG.println("P Mode and no charge - checking gearPosition");
             #endif
             getGearPos();
+                appendFile(SD, "/hello.txt","getGear\r\n");
           }
           Serial.println("updating thinger");
           thing.handle();
@@ -760,7 +836,7 @@ void loop()
       }
   }
   else                                                                                                      //CAN IS OFF
-    {
+    {    appendFile(SD, "/hello.txt","noData?\r\n");
       disconnectCheck();
     }
 }
