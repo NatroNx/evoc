@@ -3,6 +3,8 @@ A very first try to get my EV (hyundai Ioniq) connected to thinger.io
 
 Software can be used as is and is licensed under GPLv3
 ******************************************************************************/
+//#define _DEBUG_  //thinger debugging
+
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
@@ -14,8 +16,8 @@ Software can be used as is and is licensed under GPLv3
 
 
 // This Secion is for adjustable User Settings
-uint32_t updateTimerCharge=300;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
-uint32_t updateTimerDrive=300;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
+uint32_t updateTimerCharge=240;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
+uint32_t updateTimerDrive=240;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
 uint32_t delayBeforeSleep=400;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
@@ -25,7 +27,7 @@ bool dataWhileDriving=true;         //should the Dongle send data while driving?
 
 bool wifiState;
 bool logToFile=true;
-
+File file;
 
 
 
@@ -120,7 +122,7 @@ void writeFile(fs::FS &fs, const char * path, const char * message){
     } else {
         Serial.println("Write failed");
     }
-    file.close();
+   file.close();
 }
 
 
@@ -129,19 +131,15 @@ void writeFile(fs::FS &fs, const char * path, const char * message){
 
 
 void appendFile(fs::FS &fs, const char * path, const char * message){
-    Serial.printf("Appending to file: %s\n", path);
-
-    File file = fs.open(path, FILE_APPEND);
+    //Serial.printf("Appending to file: %s\n", path);
     if(!file){
         Serial.println("Failed to open file for appending");
         return;
     }
-    if(file.print(message)){
-        Serial.println("Message appended");
-    } else {
-        Serial.println("Append failed");
+    if(!file.print(message)){
+            Serial.println("Append failed");
     }
-    file.close();
+//  file.close();
 }
 
 
@@ -151,8 +149,9 @@ void printAndLogln(String messageString)
 {  Serial.println(messageString);
   if(logToFile)
   {
-    messageString+="\r\n";
-    appendFile(SD, "/log.txt",messageString.c_str());
+    if(!file.println(messageString)){
+            Serial.println("Append failed");
+    }
   }
 
 }
@@ -161,7 +160,9 @@ void printAndLog(String messageString)
 {  Serial.print(messageString);
   if(logToFile)
   {
-  appendFile(SD, "/log.txt",messageString.c_str());
+    if(!file.print(messageString)){
+            Serial.println("Append failed");
+    }
   }
 }
 
@@ -185,12 +186,14 @@ btStop();
 
   Serial.begin(115200);
 
-SD.begin(2);
-SD.begin(5);
 
-appendFile(SD, "/log.txt","Start\r\n");
-
-
+  if (!SD.begin(5)) {
+    Serial.println("initialization failed!");
+    while (1);
+  }
+  Serial.println("initialization done.");
+    file = SD.open("/log.txt", FILE_APPEND);
+    printAndLogln("---- START -----");
 
 
   //thingerIo Stuff
@@ -217,6 +220,7 @@ appendFile(SD, "/log.txt","Start\r\n");
   byte ver = obd.begin();
 
 #ifdef DEBUG
+
 printAndLog("OBD Firmware Version");
 printAndLogln(String(ver));
 
@@ -327,13 +331,25 @@ bool storeEvData()
      }
 
 
+
+
+
+#ifdef DEBUG
+
 		 for(int i=0;i<(sizeof(evData)/sizeof(evData[0]));i++)
-		 {
-			 Serial.print(evData[i][0]);
+		 {printAndLog(String(evData[i][0]));
+       printAndLog("     ");
+       printAndLogln(String(evData[i][1]));
+
+			/** Serial.print(evData[i][0]);
        Serial.print("   ");
        Serial.println(evData[i][1]);
+       */
 
 		 }
+       printAndLogln(" ");
+
+#endif
 
 
 }
@@ -341,7 +357,7 @@ bool storeEvData()
 bool errorHandling()
 {disconnectCheck();
   char buffer[50];
-  Serial.println("Advanced Error Handling!");
+  printAndLogln("Advanced Error Handling!");
   evSendCommand("\r",buffer,sizeof(buffer), 2000);
   delay(1000);
   obd.reset();
@@ -364,8 +380,8 @@ evInit();
 
 bool getEvPid(const char* evCommand)
 {	if (errors>15)
-  {Serial.print("Errors: " );
-    Serial.println(errors);
+  {printAndLog("Errors: " );
+    printAndLogln(String(errors));
     errorHandling();
   }
   char buffer[300];
@@ -477,10 +493,10 @@ int evSendCommand(const char* cmd, char* buf, int bufsize, unsigned int timeout)
 #ifdef DEBUG
 void evDebugOutput(const char *s)
 {
-	DEBUG.print('[');
-	DEBUG.print(millis());
-	DEBUG.print(']');
-	DEBUG.println(s);
+	printAndLog("[");
+	printAndLog(String(millis()));
+	printAndLog("]");
+	printAndLogln(String(s));
 }
 #endif
 
@@ -580,13 +596,13 @@ bool isCanOn()
   {if (getGearPos())
     {
     #ifdef DEBUG
-    Serial.println("AliveCheck Successful");
+    printAndLogln("AliveCheck Successful");
     #endif
     return true;
     }
     else
     #ifdef DEBUG
-    Serial.println("AliveCheck Unsuccessful");
+    printAndLogln("AliveCheck Unsuccessful");
     #endif
     {return false;
     }
@@ -602,19 +618,18 @@ bool isCanOn()
 bool getGearPos()
 {
   #ifdef DEBUG
-		DEBUG.println("get Gear Position");
+	printAndLogln("get Gear Position");
 #endif
   char buffer[300];
   #if CONNECT_OBD
   if (!connected)
   {
     digitalWrite(PIN_LED, HIGH);
-    Serial.print("Connecting to OBD...");
+    printAndLog("Connecting to OBD...");
     if (evInit()) {
-      Serial.println("OK");
+      printAndLogln("OK");
       connected = true;
     } else {
-      Serial.println();
     }
     digitalWrite(PIN_LED, LOW);
 
@@ -691,14 +706,19 @@ void controlWifi(bool state)
 {  if (state != wifiState)
   {
     #ifdef DEBUG
-    		DEBUG.print("Wifi state changes to: ");
-    		DEBUG.println(state);
-        DEBUG.println("Delay for 25 seconds to get the Wifi ready");
+    		printAndLog("Wifi state changes to: ");
+    		printAndLogln(String(state));
+        printAndLogln("Delay for 25 seconds to get the Wifi ready");
     #endif
   wifiState=state;
   digitalWrite(PIN_GPS_POWER, wifiState);
-  lastHeartBeatTimer=millis()+25000; //setting the last heartbeat to be 25 seconds in the future - this avoids to trigger isCanOn right after the wifi is up (on short timers)
-  delay(25000);
+   //setting the last heartbeat to be 25 seconds in the future - this avoids to trigger isCanOn right after the wifi is up (on short timers)
+if(state)
+{printAndLogln("Delay for 25 seconds to get the Wifi ready");
+lastHeartBeatTimer=millis()+25000;
+delay(25000);
+}
+
   }
 }
 
@@ -727,12 +747,13 @@ void disconnectCheck()
     lastHeartBeatTimer=millis();
     delay(500);
 
-
+ file.close();
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
     esp_sleep_enable_timer_wakeup(sleepTimer*1000000);
     esp_deep_sleep_start();
+
   }
 }
 
@@ -760,23 +781,23 @@ void loop()
 
 
 
-    Serial.print("UpdatecheckTimerCharge    ");
-    Serial.print((millis() - updateCheckTimerCharge)/1000);
-    Serial.print("  :  ");
-      Serial.println(updateCheckTimerCharge);
+    printAndLog("UpdatecheckTimerCharge    ");
+    printAndLog(String((millis() - updateCheckTimerCharge)/1000));
+    printAndLog("  :  ");
+      printAndLogln(String(updateTimerCharge));
 
-      Serial.print("updateCheckTimerDrive  ");
-        Serial.print((millis() - updateCheckTimerDrive)/1000);
-        Serial.print("  :  ");
-          Serial.println(updateTimerDrive);
-
-
+      printAndLog("updateCheckTimerDrive  ");
+        printAndLog(String((millis() - updateCheckTimerDrive)/1000));
+        printAndLog("  :  ");
+          printAndLogln(String(updateTimerDrive));
 
 
-      Serial.print("AliveCheckTimer  ");
-        Serial.print((millis() - lastHeartBeatTimer)/1000);
-        Serial.print("  :  ");
-          Serial.println(AliveCheckTimer);
+
+
+      printAndLog("AliveCheckTimer  ");
+        printAndLog(String((millis() - lastHeartBeatTimer)/1000));
+        printAndLog("  :  ");
+          printAndLogln(String(AliveCheckTimer));
 
 
 
@@ -796,46 +817,48 @@ void loop()
 
           if(evData[3][l01]<0)                                    //P Mode and negative discharge current  - we are Charging
           {
-              appendFile(SD, "/log.txt","Charging\r\n");
-
             #ifdef DEBUG
-            DEBUG.println("P Mode and charge current");
+            printAndLogln("Charging");
             #endif
           }
           else if (evData[3][(l01+1)%2]<0)          //P mode on and last state was charging - now we aren't - charge stopped!
           {
             #ifdef DEBUG
-            DEBUG.println("P Mode and  charge stopped");
+            printAndLogln("P Mode and  charge stopped");
             #endif//send a Mail with some details
-                appendFile(SD, "/log.txt","Stopped\r\n");
             thing.call_endpoint("ChargeStop", thing["Ioniq"]);
           }
           else  //last state was no charge as well - so we are just parking - let's check gearPos - maybe we'll start driving
           {
             #ifdef DEBUG
-            DEBUG.println("P Mode and no charge - checking gearPosition");
+            printAndLogln("P Mode and no charge - checking gearPosition");
             #endif
             getGearPos();
-                appendFile(SD, "/log.txt","getGear\r\n");
+
           }
-          Serial.println("updating thinger");
+          printAndLogln("updating thinger");
           thing.handle();
           thing.write_bucket("freematicsbucket", "Ioniq");
           delay(500);
           lastHeartBeatTimer=millis();
+            printAndLog("...and sleep for");
+                        printAndLogln(String(updateTimerCharge-30));
           delay(500);
 
-
+          controlWifi(false);
           esp_wifi_stop();
+          obd.enterLowPowerMode();
+          delay(300);
           esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
           esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
           esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
-          esp_sleep_enable_timer_wakeup(250*1000000);
+          esp_sleep_enable_timer_wakeup((updateTimerCharge-30)*1000000);
           esp_light_sleep_start();
-          obd.enterLowPowerMode();
           delay(300);
           esp_wifi_start();
+
           obd.leaveLowPowerMode();
+          file = SD.open("/log.txt", FILE_APPEND);
         }
     }
     else                                                                              //NO P mode - we're probably driving
