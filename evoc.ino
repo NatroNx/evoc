@@ -19,14 +19,21 @@ Software can be used as is and is licensed under GPLv3
 uint32_t updateTimerCharge=240;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
 uint32_t updateTimerDrive=240;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
-uint32_t delayBeforeSleep=400;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
+uint32_t delayBeforeSleep=300;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
 bool dataWhileDriving=true;         //should the Dongle send data while driving??
-
+bool logToFile=true;
 // Settings Section END
 
+
+
+#define PIN_LED 4
+#define DEBUG Serial
+#define CONNECT_OBD 1
+
+
 bool wifiState;
-bool logToFile=true;
+
 File file;
 
 
@@ -37,9 +44,7 @@ File file;
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 
-#define PIN_LED 4
-#define DEBUG Serial
-#define CONNECT_OBD 1
+
 
 static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
@@ -207,9 +212,9 @@ btStop();
 };
 
 //setting the longest UpdateTimer as AliveCheckTimer  -  so the active check will only trigger when the normal routine brings no data back
- AliveCheckTimer=updateTimerDrive*2+1;
+ AliveCheckTimer=updateTimerDrive+20;
   if(updateTimerDrive<updateTimerCharge)
-  {AliveCheckTimer=updateTimerCharge*2+1;
+  {AliveCheckTimer=updateTimerCharge+20;
   }
 
   updateCheckTimerCharge=-updateTimerCharge*1000;  //set start values to trigger on boot
@@ -364,6 +369,7 @@ bool errorHandling()
   delay(1000);
   evInit();
   delay(1000);
+  logTimes();
   errors=0;
 /**obd.enterLowPowerMode();
 delay(1000);
@@ -381,7 +387,7 @@ evInit();
 bool getEvPid(const char* evCommand)
 {	if (errors>15)
   {printAndLog("Errors: " );
-    printAndLogln(String(errors));
+   printAndLogln(String(errors));
     errorHandling();
   }
   char buffer[300];
@@ -526,10 +532,10 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 		digitalWrite(SPI_PIN_CS, LOW);
 		while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
 			char c = SPI.transfer(' ');
-		Serial.print(c);
+		printAndLog(String(c));
 			if(c==0xD)
 {
-	Serial.println("");
+	printAndLogln("");
 }
 
 			if (eos) continue;
@@ -669,7 +675,7 @@ bool evInit()
     {  evSendCommand("\r",buffer,sizeof(buffer), 2000);
        delay(500);
         if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "NO READY SIGNAL") || strstr(buffer, "RECV TIMEOUT"))
-        { Serial.println("P  A  N  I  C");
+        { printAndLogln("P  A  N  I  C");
 
           errorHandling();
         }
@@ -708,14 +714,13 @@ void controlWifi(bool state)
     #ifdef DEBUG
     		printAndLog("Wifi state changes to: ");
     		printAndLogln(String(state));
-        printAndLogln("Delay for 25 seconds to get the Wifi ready");
     #endif
   wifiState=state;
   digitalWrite(PIN_GPS_POWER, wifiState);
-   //setting the last heartbeat to be 25 seconds in the future - this avoids to trigger isCanOn right after the wifi is up (on short timers)
+
 if(state)
-{printAndLogln("Delay for 25 seconds to get the Wifi ready");
-lastHeartBeatTimer=millis()+25000;
+{printAndLogln("Enable Wifi - delay 25 seconds to get WiFi online");
+lastHeartBeatTimer=millis()+25000; //setting the last heartbeat to be 25 seconds in the future - this avoids to trigger isCanOn right after the wifi is up (on short timers)
 delay(25000);
 }
 
@@ -726,9 +731,10 @@ void disconnectCheck()
 {
   if (millis() - lastHeartBeatTimer > delayBeforeSleep*1000)
   {
-  if(evData[3][l01]<0) //CAN is down, but last state was charging - tell this to your master
-  { Serial.println("No CAN - last state was charging");
+  if(evData[3][l01]<0) //CAN is down, but last state was charging - tell your master
+  { printAndLogln("No CAN - last state was charging");
     evData[3][l01]=0; //no CAN data probably means charging stopped  -send 0Amp
+    controlWifi(true);
     thing.handle();
     thing.write_bucket("freematicsbucket", "Ioniq");
     thing.call_endpoint("ChargeStop", thing["Ioniq"]);
@@ -736,18 +742,19 @@ void disconnectCheck()
   }
 
     #ifdef DEBUG
-    	DEBUG.print("Can is off for ");
-  		DEBUG.print((millis()-lastHeartBeatTimer)/1000);
-      DEBUG.print("seconds, which is more then delayBeforeSleep: ");
-      DEBUG.print(delayBeforeSleep);
-      DEBUG.println("seconds - going to sleep");
+    	printAndLog("Can is off for ");
+  		printAndLog(String((millis()-lastHeartBeatTimer)/1000));
+      printAndLog("seconds, which is more then delayBeforeSleep: ");
+      printAndLog(String(delayBeforeSleep));
+      printAndLog("seconds - going to sleep for ");
+      printAndLogln(String(sleepTimer));
     #endif
 
     controlWifi(false);
     lastHeartBeatTimer=millis();
-    delay(500);
 
- file.close();
+    file.close();
+    delay(500);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
@@ -760,48 +767,52 @@ void disconnectCheck()
 
 void gatherData()
 {  while(!getEvPid("2101\r"))
-    {   Serial.print("..wait for obd data:");
-        Serial.println(errors);
+    {   printAndLog("..wait for obd data:");
+        printAndLogln(String(errors));
     }
     while(!getEvPid("2105\r"))
-    {   Serial.print("..wait for obd data:");
-        Serial.println(errors);
+    {   printAndLog("..wait for obd data:");
+        printAndLogln(String(errors));
     }
 }
 
+void logTimes()
+{
+
+          printAndLog("UpdatecheckTimerCharge    ");
+          printAndLog(String((millis() - updateCheckTimerCharge)/1000));
+          printAndLog("  :  ");
+          printAndLogln(String(updateTimerCharge));
+
+            printAndLog("updateCheckTimerDrive  ");
+            printAndLog(String((millis() - updateCheckTimerDrive)/1000));
+            printAndLog("  :  ");
+            printAndLogln(String(updateTimerDrive));
+
+
+
+
+            printAndLog("AliveCheckTimer  ");
+            printAndLog(String((millis() - lastHeartBeatTimer)/1000));
+            printAndLog("  :  ");
+            printAndLogln(String(AliveCheckTimer));
+
+
+
+            printAndLog("delayBeforeSleep  ");
+            printAndLog(String((millis() - lastHeartBeatTimer)/1000));
+            printAndLog("  :  ");
+            printAndLogln(String(delayBeforeSleep));
+
+
+}
 
 void loop()
 {
 
   if(millis()-minute5>5000)
   {
-    char millitime[20];
-    sprintf(millitime, "%ul", millis());
-    appendFile(SD, "/log.txt",millitime);
-
-
-
-    printAndLog("UpdatecheckTimerCharge    ");
-    printAndLog(String((millis() - updateCheckTimerCharge)/1000));
-    printAndLog("  :  ");
-      printAndLogln(String(updateTimerCharge));
-
-      printAndLog("updateCheckTimerDrive  ");
-        printAndLog(String((millis() - updateCheckTimerDrive)/1000));
-        printAndLog("  :  ");
-          printAndLogln(String(updateTimerDrive));
-
-
-
-
-      printAndLog("AliveCheckTimer  ");
-        printAndLog(String((millis() - lastHeartBeatTimer)/1000));
-        printAndLog("  :  ");
-          printAndLogln(String(AliveCheckTimer));
-
-
-
-
+    logTimes();
     minute5=millis();
   }
 
@@ -841,7 +852,7 @@ void loop()
           thing.write_bucket("freematicsbucket", "Ioniq");
           delay(500);
           lastHeartBeatTimer=millis();
-            printAndLog("...and sleep for");
+            printAndLog("...and sleep for ");
                         printAndLogln(String(updateTimerCharge-30));
           delay(500);
 
@@ -856,7 +867,6 @@ void loop()
           esp_light_sleep_start();
           delay(300);
           esp_wifi_start();
-
           obd.leaveLowPowerMode();
           file = SD.open("/log.txt", FILE_APPEND);
         }
@@ -866,22 +876,27 @@ void loop()
         if(millis() - updateCheckTimerDrive > updateTimerDrive*1000)
           {if(dataWhileDriving)
              {gatherData();
+               controlWifi(true);
+              updateCheckTimerDrive=millis();
              #ifdef DEBUG
-             DEBUG.println("D Mode");
+             printAndLogln("D Mode");
+             printAndLogln("updating thinger");
              #endif
-             updateCheckTimerDrive=millis();
-             Serial.println("updating thinger");
              thing.handle();
              thing.write_bucket("freematicsbucket", "Ioniq");
              }
-
+             else
+             {
+            getGearPos();
+             }
           updateCheckTimerDrive=millis();
-          getGearPos();
+
+
           }
       }
   }
   else                                                                                                      //CAN IS OFF
-    {    appendFile(SD, "/log.txt","noData?\r\n");
+    { appendFile(SD, "/log.txt","noData?\r\n");
       disconnectCheck();
     }
 }
