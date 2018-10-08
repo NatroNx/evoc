@@ -191,7 +191,6 @@ btStop();
 
   Serial.begin(115200);
 
-
   if (!SD.begin(5)) {
     Serial.println("initialization failed!");
     while (1);
@@ -532,10 +531,10 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout)
 		digitalWrite(SPI_PIN_CS, LOW);
 		while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
 			char c = SPI.transfer(' ');
-		printAndLog(String(c));
+		Serial.print(c);
 			if(c==0xD)
 {
-	printAndLogln("");
+Serial.println("");
 }
 
 			if (eos) continue;
@@ -810,6 +809,21 @@ void logTimes()
 void loop()
 {
 
+
+  controlWifi(true);
+
+  obd.enterLowPowerMode();
+  delay(300);
+  Serial.println("SLEEP");
+
+gpio_pad_hold(PIN_GPS_POWER);
+  esp_sleep_enable_timer_wakeup(30*1000000);
+  esp_light_sleep_start();
+  delay(300);
+Serial.print("WAKE");
+
+
+
   if(millis()-minute5>5000)
   {
     logTimes();
@@ -851,9 +865,8 @@ void loop()
           thing.handle();
           thing.write_bucket("freematicsbucket", "Ioniq");
           delay(500);
-          lastHeartBeatTimer=millis();
-            printAndLog("...and sleep for ");
-                        printAndLogln(String(updateTimerCharge-30));
+          printAndLog("...and sleep for ");
+          printAndLogln(String(updateTimerCharge-30));
           delay(500);
 
           controlWifi(false);
@@ -876,19 +889,36 @@ void loop()
         if(millis() - updateCheckTimerDrive > updateTimerDrive*1000)
           {if(dataWhileDriving)
              {gatherData();
-               controlWifi(true);
-              updateCheckTimerDrive=millis();
+              controlWifi(true);
              #ifdef DEBUG
              printAndLogln("D Mode");
              printAndLogln("updating thinger");
              #endif
              thing.handle();
              thing.write_bucket("freematicsbucket", "Ioniq");
+              delay(500);
+              printAndLog("...and sleep for ");
+              printAndLogln(String(updateTimerDrive-30));
+              delay(500);
+              lastHeartBeatTimer=millis();
+              file.close();
+              esp_wifi_stop();
+              obd.enterLowPowerMode();
+              delay(300);
+            gpio_pad_hold(PIN_GPS_POWER);
+            esp_sleep_enable_timer_wakeup((updateTimerDrive-30)*1000000);
+            esp_light_sleep_start();
+              delay(300);
+              esp_wifi_start();
+            obd.leaveLowPowerMode();
+            file = SD.open("/log.txt", FILE_APPEND);
+
              }
              else
              {
-            getGearPos();
+
              }
+          getGearPos();
           updateCheckTimerDrive=millis();
 
 
