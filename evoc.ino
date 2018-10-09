@@ -16,7 +16,7 @@ Software can be used as is and is licensed under GPLv3
 
 
 // This Secion is for adjustable User Settings
-uint32_t updateTimerCharge=240;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
+uint32_t updateTimerCharge=70;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
 uint32_t updateTimerDrive=240;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
 uint32_t delayBeforeSleep=300;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
@@ -491,7 +491,7 @@ else if(strncmp(evCommand, "2102",4)  == 0)
 
 int evSendCommand(const char* cmd, char* buf, int bufsize, unsigned int timeout)
 { obd.write(cmd);
-	return evReceive(buf, bufsize, timeout);
+	return evReceive(buf, bufsize, 5000);
 }
 
 
@@ -642,15 +642,16 @@ bool getGearPos()
 #endif
 #if CONNECT_OBD
 evInit();
-while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
+//while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
 #endif
 #if !CONNECT_OBD
 getEvPid("2101\r ");      //if you don't have obd data and need to test -  call this to get 2101 7EA dummy data
 #endif
 for (int i=0; i<13; i++)
-{   if(getEvPid("2101\r"))
+{   if(getEvPid("2105\r"))
   { i=15; //first true breaks out
     lastHeartBeatTimer=millis();
+    delay(1000);
     #if CONNECT_OBD
     evInit();
     #endif
@@ -663,7 +664,7 @@ return false;
 
 bool evInit()
 {
-	const char *initcmd[] = {"ATZ\r", "ATE0\r", "ATH1\r", "ATSP6\r", "ATCFC1\r","ATCM7FF\r"};
+	const char *initcmd[] = { "ATZ\r", "ATE0\r", "ATH1\r", "ATSP6\r" , "ATCFC1\r","ATCM7FF\r", "\r"};
 	char buffer[300];
 	byte stage;
 
@@ -808,22 +809,6 @@ void logTimes()
 
 void loop()
 {
-
-
-  controlWifi(true);
-
-  obd.enterLowPowerMode();
-  delay(300);
-  Serial.println("SLEEP");
-
-gpio_pad_hold(PIN_GPS_POWER);
-  esp_sleep_enable_timer_wakeup(30*1000000);
-  esp_light_sleep_start();
-  delay(300);
-Serial.print("WAKE");
-
-
-
   if(millis()-minute5>5000)
   {
     logTimes();
@@ -905,7 +890,7 @@ Serial.print("WAKE");
               esp_wifi_stop();
               obd.enterLowPowerMode();
               delay(300);
-            gpio_pad_hold(PIN_GPS_POWER);
+            //gpio_pad_hold(PIN_GPS_POWER);
             esp_sleep_enable_timer_wakeup((updateTimerDrive-30)*1000000);
             esp_light_sleep_start();
               delay(300);
