@@ -16,8 +16,8 @@ Software can be used as is and is licensed under GPLv3
 
 
 // This Secion is for adjustable User Settings
-uint32_t updateTimerCharge=70;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
-uint32_t updateTimerDrive=240;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
+uint32_t updateTimerCharge=240;       //time between the car will update data to the cloud while Charging (in Seconds) - don't go below 1 Minute
+uint32_t updateTimerDrive=80;       //time between the car will update data to the cloud while Driving (in Seconds) - 0 will Disable Upload while Driving - don't go below 1 Minute
 uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when car is off (in Seconds)(Note: a sleeping Arduino won't ceck if you car goes online)
 uint32_t delayBeforeSleep=300;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
@@ -176,7 +176,7 @@ void printAndLog(String messageString)
 void setup() {
 
 
-
+      gpio_pad_unhold(PIN_GPS_POWER);
 
 btStop();
   pinMode(PIN_LED, OUTPUT);
@@ -491,7 +491,7 @@ else if(strncmp(evCommand, "2102",4)  == 0)
 
 int evSendCommand(const char* cmd, char* buf, int bufsize, unsigned int timeout)
 { obd.write(cmd);
-	return evReceive(buf, bufsize, 5000);
+	return evReceive(buf, bufsize, timeout);
 }
 
 
@@ -642,16 +642,15 @@ bool getGearPos()
 #endif
 #if CONNECT_OBD
 evInit();
-//while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
+while(!obd.sendCommand("ATCF7EA\r", buffer, sizeof(buffer), OBD_TIMEOUT_LONG) || !strstr(buffer, "OK"));
 #endif
 #if !CONNECT_OBD
 getEvPid("2101\r ");      //if you don't have obd data and need to test -  call this to get 2101 7EA dummy data
 #endif
 for (int i=0; i<13; i++)
-{   if(getEvPid("2105\r"))
+{   if(getEvPid("2101\r"))
   { i=15; //first true breaks out
     lastHeartBeatTimer=millis();
-    delay(1000);
     #if CONNECT_OBD
     evInit();
     #endif
@@ -664,7 +663,7 @@ return false;
 
 bool evInit()
 {
-	const char *initcmd[] = { "ATZ\r", "ATE0\r", "ATH1\r", "ATSP6\r" , "ATCFC1\r","ATCM7FF\r", "\r"};
+	const char *initcmd[] = {"ATZ\r", "ATAT1\r", "ATE0\r", "ATH1\r", "ATSP6\r", "ATCFC1\r","ATCM7FF\r"};
 	char buffer[300];
 	byte stage;
 
@@ -672,7 +671,7 @@ bool evInit()
 
 		stage = 0;
 		if (n != 0)
-    {  evSendCommand("\r",buffer,sizeof(buffer), 2000);
+    {  evSendCommand("\r",buffer,sizeof(buffer), 1000);
        delay(500);
         if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "NO READY SIGNAL") || strstr(buffer, "RECV TIMEOUT"))
         { printAndLogln("P  A  N  I  C");
@@ -809,6 +808,10 @@ void logTimes()
 
 void loop()
 {
+
+
+
+
   if(millis()-minute5>5000)
   {
     logTimes();
@@ -879,32 +882,36 @@ void loop()
              printAndLogln("D Mode");
              printAndLogln("updating thinger");
              #endif
+             delay(500);
              thing.handle();
              thing.write_bucket("freematicsbucket", "Ioniq");
-              delay(500);
+              delay(2000);
               printAndLog("...and sleep for ");
-              printAndLogln(String(updateTimerDrive-30));
+              printAndLogln(String(updateTimerDrive-28));
               delay(500);
               lastHeartBeatTimer=millis();
-              file.close();
-              esp_wifi_stop();
-              obd.enterLowPowerMode();
-              delay(300);
-            //gpio_pad_hold(PIN_GPS_POWER);
-            esp_sleep_enable_timer_wakeup((updateTimerDrive-30)*1000000);
-            esp_light_sleep_start();
-              delay(300);
-              esp_wifi_start();
-            obd.leaveLowPowerMode();
-            file = SD.open("/log.txt", FILE_APPEND);
+
 
              }
              else
              {
 
              }
-          getGearPos();
+
           updateCheckTimerDrive=millis();
+        file.close();
+        esp_wifi_stop();
+        obd.enterLowPowerMode();
+        delay(300);
+  //    gpio_pad_hold(PIN_GPS_POWER);
+      esp_sleep_enable_timer_wakeup((updateTimerDrive-30)*1000000);
+      esp_light_sleep_start();
+        delay(300);
+        esp_wifi_start();
+      obd.leaveLowPowerMode();
+        getGearPos();
+      file = SD.open("/log.txt", FILE_APPEND);
+
 
 
           }
