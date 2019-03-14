@@ -7,7 +7,9 @@ Software can be used as is and is licensed under GPLv3
 
 #include "FS.h"
 #include "SD.h"
-#include "SPI.h"
+//#include "SPI.h"
+#include <esp_int_wdt.h>
+#include <esp_task_wdt.h>
 
 #include <FreematicsPlus.h>
 #include <WiFiClientSecure.h>
@@ -22,7 +24,9 @@ uint32_t sleepTimer=310;              //time for the OBD Arduino to sleep, when 
 uint32_t delayBeforeSleep=300;       //delay before the Arduino falls asleep when no OBD Data is received (in seconds)
 bool wifiWhileDriving=true;         //should the wifi dongle be online while driving?(to offer wifi to the ioniq itself for example?)
 bool dataWhileDriving=true;         //should the Dongle send data while driving??
-bool logToFile=true;
+bool logToFile=false;               //logging to SD Card? Take care - if this is true a SD Card has to be mounted!!
+bool ManualMode=true;               //disabled all logic - just manual Commands are run
+ String readString="";              //only used in manualMode to store the typed String
 // Settings Section END
 
 
@@ -41,7 +45,7 @@ File file;
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 
-static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
+//static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
 COBDSPI obd;
 bool connected = false;
@@ -157,6 +161,7 @@ void printAndLog(String messageString) {
 
 
 void setup() {
+
     btStop();
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH);
@@ -205,6 +210,7 @@ void setup() {
     printAndLogln(String(ver));
 
     #endif
+    Serial.println("Manual Mode - waiting for commands (max 50 chars long)  send < to fire");
 }
 
 
@@ -451,9 +457,10 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout) {
     int n = 0;
     bool eos = false;
     bool matched = false;
-    //portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+  //  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
     uint32_t t = millis();
     do {
+
         while (digitalRead(SPI_PIN_READY) == HIGH) {
             delay(1);
             if (millis() - t > timeout) {
@@ -467,10 +474,11 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout) {
         delay(10);
         #endif
         // taskYIELD();
-        // portENTER_CRITICAL(&mux);
-        digitalWrite(SPI_PIN_CS, LOW);
+        //portENTER_CRITICAL(&mux);
+        //digitalWrite(SPI_PIN_CS, LOW);
         while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
-            char c = SPI.transfer(' ');
+      //      char c = SPI.transfer(' ');
+       char c ;
             printAndLog(String(c));
             if(c==0xD) {
                 printAndLogln("");
@@ -510,9 +518,9 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout) {
                 n++;
             }
         }
-        digitalWrite(SPI_PIN_CS, HIGH);
-        SPI.endTransaction();
-        //portEXIT_CRITICAL(&mux);
+        //digitalWrite(SPI_PIN_CS, HIGH);
+      //  SPI.endTransaction();
+      //  portEXIT_CRITICAL(&mux);
     } while (!eos && millis() - t < timeout);
     #ifdef DEBUG
     if (!eos && millis() - t >= timeout) {
@@ -685,6 +693,15 @@ void disconnectCheck() {
 }
 
 
+void hard_restart() {
+  esp_task_wdt_init(1,true);
+  esp_task_wdt_add(NULL);
+  while(true);
+}
+
+
+
+
 void gatherData() {
     while(!getEvPid("2101\r")) {
         printAndLog("..wait for obd data:");
@@ -722,7 +739,8 @@ void logTimes() {
 }
 
 void loop() {
-
+ if(!ManualMode)
+  {
     if(millis()-minute5>5000) {
         logTimes();
         minute5=millis();
@@ -793,8 +811,74 @@ void loop() {
                 updateCheckTimerDrive=millis();
             }
         }
-    } else { //CAN IS OFF
+    }
+     else { //CAN IS OFF
         appendFile(SD, "/log.txt","noData?\r\n");
         disconnectCheck();
+      }
     }
+    else //MANUAL MODE ON
+      {
+
+
+
+
+      bool endofText=false;
+       char buffer[33];
+       while (Serial.available())
+       {delay(10);
+        if (Serial.available() >0)
+        {char c = Serial.read();
+         if(c=='<')
+         {
+           endofText=true;
+           readString += "\r";
+         }
+        else if(c=='*')
+        {Serial.println("Reset and reboot ESP32 in 1 seconds");
+        //obd.reset();
+        delay(1000);
+        hard_restart();
+        }
+        else if(c=='_')
+        {	Serial.print("Current readypin:");
+        Serial.println(digitalRead(SPI_PIN_READY));
+
+          Serial.println("Manual LOW");
+        	digitalWrite(SPI_PIN_CS, HIGH);
+              delay(50);
+          Serial.print("after LOW readypin:");
+
+        Serial.println(digitalRead(SPI_PIN_READY));
+        }
+
+
+
+        else
+        {readString += c;
+        }
+      }
+
+      }
+
+    if (readString.length() >0) {
+      if(endofText)
+      {
+      Serial.println(readString);
+     char copyToChar[50];
+     readString.toCharArray(copyToChar,50);
+     obd.sendCommand(copyToChar, buffer, sizeof(buffer),1500);
+     readString="";
+     endofText=false;
+}
+
+
+
+
+}
+}
+
+
+
+
 }
