@@ -709,8 +709,7 @@ void COBDSPI::end()
 }
 
 int COBDSPI::receive(char* buffer, int bufsize, unsigned int timeout)
-{
-	int n = 0;
+{	int n = 0;
 	bool eos = false;
 	bool matched = false;
 	uint32_t t = millis();

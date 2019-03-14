@@ -453,11 +453,9 @@ void evDebugOutput(const char *s) {
 
 
 int evReceive(char* buffer, int bufsize, unsigned int timeout) {
-    //Serial.println("Rec STARTS HERE");
     int n = 0;
     bool eos = false;
     bool matched = false;
-  //  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
     uint32_t t = millis();
     do {
 
@@ -475,15 +473,13 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout) {
         #endif
         // taskYIELD();
         //portENTER_CRITICAL(&mux);
-        //digitalWrite(SPI_PIN_CS, LOW);
+        digitalWrite(SPI_PIN_CS, LOW);
         while (digitalRead(SPI_PIN_READY) == LOW && millis() - t < timeout) {
-      //      char c = SPI.transfer(' ');
-       char c ;
+            char c = SPI.transfer(' ');
             printAndLog(String(c));
             if(c==0xD) {
                 printAndLogln("");
             }
-
             if (eos) continue;
             if (!matched) {
                 // match header
@@ -518,8 +514,8 @@ int evReceive(char* buffer, int bufsize, unsigned int timeout) {
                 n++;
             }
         }
-        //digitalWrite(SPI_PIN_CS, HIGH);
-      //  SPI.endTransaction();
+        digitalWrite(SPI_PIN_CS, HIGH);
+
       //  portEXIT_CRITICAL(&mux);
     } while (!eos && millis() - t < timeout);
     #ifdef DEBUG
