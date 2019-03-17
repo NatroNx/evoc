@@ -210,7 +210,7 @@ void setup() {
     printAndLogln(String(ver));
 
     #endif
-    Serial.println("Manual Mode - waiting for commands (max 50 chars long)  send < to fire");
+    Serial.println("Manual Mode - waiting for commands (max 25 chars long)  send < to fire");
 }
 
 
@@ -603,7 +603,7 @@ bool evInit() {
             evSendCommand("\r",buffer,sizeof(buffer), 2000);
             delay(500);
             if (obd.sendCommand("ATCF7EC\r", buffer, sizeof(buffer), OBD_TIMEOUT_SHORT) || strstr(buffer, "NO READY SIGNAL") || strstr(buffer, "RECV TIMEOUT")) {
-                printAndLogln("P  A  N  I  C");
+                printAndLogln("PANIC");
 
                 errorHandling();
             }
@@ -820,7 +820,7 @@ void loop() {
 
 
       bool endofText=false;
-       char buffer[33];
+       char buffer[128];
        while (Serial.available())
        {delay(10);
         if (Serial.available() >0)
@@ -831,18 +831,16 @@ void loop() {
            readString += "\r";
          }
         else if(c=='*')
-        {Serial.println("Reset and reboot ESP32 in 1 seconds");
+        {Serial.println("Reset and reboot ESP32");
         //obd.reset();
-        delay(1000);
         hard_restart();
         }
         else if(c=='_')
         {	Serial.print("Current readypin:");
         Serial.println(digitalRead(SPI_PIN_READY));
-
-          Serial.println("Manual LOW");
+          Serial.println("Manual HIGH");
         	digitalWrite(SPI_PIN_CS, HIGH);
-              delay(50);
+              delay(500);
           Serial.print("after LOW readypin:");
 
         Serial.println(digitalRead(SPI_PIN_READY));
@@ -861,9 +859,9 @@ void loop() {
       if(endofText)
       {
       Serial.println(readString);
-     char copyToChar[50];
-     readString.toCharArray(copyToChar,50);
-     obd.sendCommand(copyToChar, buffer, sizeof(buffer),1500);
+     char copyToChar[25];
+     readString.toCharArray(copyToChar,25);
+     obd.sendCommand(copyToChar, buffer, sizeof(buffer),2000);
      readString="";
      endofText=false;
 }
