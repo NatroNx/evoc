@@ -7,7 +7,7 @@ Software can be used as is and is licensed under GPLv3
 
 #include "FS.h"
 #include "SD.h"
-//#include "SPI.h"
+#include "SPI.h"
 #include <esp_int_wdt.h>
 #include <esp_task_wdt.h>
 
@@ -32,7 +32,7 @@ bool ManualMode=true;               //disabled all logic - just manual Commands 
 
 #define PIN_LED 4
 #define DEBUG Serial
-#define CONNECT_OBD 1
+//#define CONNECT_OBD 1
 
 
 bool wifiState;
@@ -45,7 +45,7 @@ File file;
 ThingerESP32 thing(USERNAME, DEVICE_ID, DEVICE_CREDENTIAL);
 
 
-//static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
+static SPISettings settings = SPISettings(SPI_FREQ, MSBFIRST, SPI_MODE0);
 
 COBDSPI obd;
 bool connected = false;
@@ -161,24 +161,27 @@ void printAndLog(String messageString) {
 
 
 void setup() {
-
-    btStop();
+      Serial.begin(115200);
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH);
-    pinMode(PIN_GPS_POWER, OUTPUT); //used for turning Wifi on / off
+
 
     delay(1000);
     digitalWrite(PIN_LED, LOW);
-    // turn on Wifi power
-
-    Serial.begin(115200);
+    pinMode(PIN_GPS_POWER, OUTPUT); //used for turning Wifi on / off
 
     if (!SD.begin(5)) {
         Serial.println("initialization failed!");
         while (1);
     }
-    Serial.println("initialization done.");
-    file = SD.open("/log.txt", FILE_APPEND);
+
+if(logToFile)
+{
+
+  Serial.println("initialization done.");
+  file = SD.open("/log.txt", FILE_APPEND);
+}
+
     printAndLogln("---- START -----");
 
     //thingerIo Stuff
@@ -786,7 +789,11 @@ void loop() {
                 delay(300);
                 esp_wifi_start();
                 obd.leaveLowPowerMode();
-                file = SD.open("/log.txt", FILE_APPEND);
+                if(logToFile)
+                {
+                      file = SD.open("/log.txt", FILE_APPEND);
+                }
+
             }
         } else { //NO P mode - we're probably driving
             controlWifi(wifiWhileDriving);
@@ -809,13 +816,15 @@ void loop() {
         }
     }
      else { //CAN IS OFF
-        appendFile(SD, "/log.txt","noData?\r\n");
+        if(logToFile)
+          {appendFile(SD, "/log.txt","noData?\r\n");
+        }
         disconnectCheck();
       }
     }
     else //MANUAL MODE ON
       {
-
+      delay(10);
 
 
 
@@ -836,14 +845,24 @@ void loop() {
         hard_restart();
         }
         else if(c=='_')
-        {	Serial.print("Current readypin:");
-        Serial.println(digitalRead(SPI_PIN_READY));
-          Serial.println("Manual HIGH");
-        	digitalWrite(SPI_PIN_CS, HIGH);
-              delay(500);
-          Serial.print("after LOW readypin:");
+        {
+            Serial.println("initialization done.");
 
-        Serial.println(digitalRead(SPI_PIN_READY));
+            file = SD.open("/log.txt", FILE_APPEND);
+            printAndLogln("---- START -----");
+
+
+            Serial.println("WakeUp");
+            byte ver = obd.begin();
+
+            #ifdef DEBUG
+
+            printAndLog("OBD Firmware Version");
+            printAndLogln(String(ver));
+
+            #endif
+            Serial.println("Manual Mode - waiting for commands (max 25 chars long)  send < to fire");
+
         }
 
 
